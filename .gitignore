@@ -1,2 +1,8 @@
 .env
 
+
+/images/UserAvatars
+./images/UserAvatars
+images/UserAvatars
+
+node_modules/

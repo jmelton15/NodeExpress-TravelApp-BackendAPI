@@ -2,8 +2,6 @@
 
 const db = require("../db");
 const { BadRequestError, NotFoundError } = require("../expressError");
-const { sqlForPartialUpdate } = require("../helpers/sql");
-const axios = require("axios");
 
 
 class SocialConnections {
@@ -18,14 +16,14 @@ class SocialConnections {
      *  Data should be {userId}
      * 
      * returns 
-     *        { User_Data:{userId, username,bio,follow_count,follower_count,avatar_pic_url,member_status}
+     *        { User_Data:{userId, username,bio,follow_count,follower_count,trip_count,avatar_pic_url,member_status}
      *          Following:[{}]
      *          Followers:[{}]
      *        }
      */
     static async getConnections({userId}) {
         const userData = await db.query(
-            `SELECT id AS "user_id",username,bio,follow_count,follower_count,avatar_pic_url,member_status
+            `SELECT id AS "user_id",username,bio,follow_count,follower_count,trip_count,avatar_pic_url,member_status
              FROM users
              WHERE id = $1`,[userId]
         );
