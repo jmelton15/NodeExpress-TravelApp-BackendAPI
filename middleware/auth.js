@@ -7,6 +7,7 @@ const { UnauthorizedError } = require("../expressError");
 function authenticateJWT(req,res,next) {
     try {
         const authHeader = req.headers.authorization;
+        
         if(authHeader) {
           res.locals.user = jwt.verify(authHeader,SECRET_KEY);
         }
@@ -70,22 +71,6 @@ function authenticateJWT(req,res,next) {
     }
   }
 
-  /**
-   *  Middleware that ensures a message can only be viewed by the user who sent it or the user it was sent to
-   */
-  function ensureToOrFromUser(req,res,next) {
-    try {
-      if (req.user.toUsername === req.params.toUsername || req.user.fromUsername === req.params.fromUsername ) {
-        return next();
-      } else {
-        return next({ status: 401, message: "Unauthorized" });
-      }
-    } catch (err) {
-      // errors would happen here if we made a request and req.user is undefined
-      return next({ status: 401, message: "Unauthorized" });
-    }
-  }
-  
   
   module.exports = {
     authenticateJWT,

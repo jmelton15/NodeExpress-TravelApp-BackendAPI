@@ -21,7 +21,7 @@ app.use(authenticateJWT);
 
 app.use("/users",usersRoutes);
 app.use("/messages",messagesRoutes);
-
+// app.disable('etag');
 
 app.use(function(req,res,next) {
     return next(new NotFoundError());

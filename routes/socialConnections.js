@@ -1,20 +1,34 @@
 "use strict";
 
 /** Routes for messages */
-
+const path = require('path');
 const jsonschema = require("jsonschema");
 const express = require("express");
 const multer = require("multer");
-const { BadRequestError } = require("../expressError");
+const { BadRequestError, UnauthorizedError } = require("../expressError");
 const { ensureCorrectUserOrAdmin, ensureLoggedIn } = require("../middleware/auth");
 const {body,check,validationResult} = require('express-validator');
 const SocialConnections = require("../models/socialConnections");
-
+const {profilePicStorage} = require("../config.js");
+const e = require('express');
 const router = new express.Router();
+const jwt = require("jsonwebtoken");
+const { SECRET_KEY } = require("../config");
 
+console.log(profilePicStorage)
 //multer options
+const storage = multer.diskStorage({
+    destination: function(req, file, callback) {
+      callback(null, profilePicStorage);
+    },
+    filename: (req, file, callback) => {
+        const ext = file.mimetype.split("/")[1];
+        callback(null, `${req.params.userId}-${file.fieldname}-${Date.now()}.${ext}`);
+      },
+  });
+
 const upload = multer({
-    dest:'images/UserAvatars'
+    storage: storage
 })
 
 
@@ -22,18 +36,13 @@ const upload = multer({
  * 
  *  Data in =>  {username}
  * 
- * returns =>  {id,username,bio,avatar_pic_url}
+ * returns =>  {id,username,bio,follow_count,follower_count,avatar_pic_url}
  * 
  * authorization needed: logged in
  */
 router.get("/:username",ensureLoggedIn,async function(req,res,next) {
     const username = req.params.username;
     try {
-        // const validator = jsonschema.validate(body,messageCreateSchema);
-        // if(!validator.valid) {
-        //     const errs = validator.errors.map(e => e.stack);
-        //     throw new BadRequestError(errs);
-        // }
         const foundUser = await SocialConnections.getUserByUsername({username});
         return res.json({foundUser});
     } catch(err) {
@@ -46,9 +55,9 @@ router.get("/:username",ensureLoggedIn,async function(req,res,next) {
  * 
  *  Data in =>  {userId}
  * 
- * returns =>  {userData: {id,username,avatar_pic_url},
- *               following:[{id,username,avatar_pic_url},...]
- *               followers:[{id,username,avatar_pic_url},...]
+ * returns =>  {userData: {id,username,follow_count,follower_count,avatar_pic_url},
+ *               following:[{id,username,follow_count,follower_count,avatar_pic_url},...]
+ *               followers:[{id,username,follow_count,follower_count,avatar_pic_url},...]
  *              }
  * 
  * authorization needed: logged in, correct user or admin
@@ -58,11 +67,7 @@ async function(req,res,next) {
     let id;
     if(req.params.userId !== undefined) id = +req.params.userId;
     try {
-        // const validator = jsonschema.validate(body,messageCreateSchema);
-        // if(!validator.valid) {
-        //     const errs = validator.errors.map(e => e.stack);
-        //     throw new BadRequestError(errs);
-        // }
+        validationResult(req).throw();
         const userData = await SocialConnections.getConnections({userId:id});
         return res.json({userData});
     } catch(err) {
@@ -92,79 +97,154 @@ async function(req,res,next) {
         const followingTrips = await SocialConnections.getConnectionsTrips({userId});
         return res.json({followingTrips});
     } catch(err) {
-        console.log(err.mapped())
         return next(err);
     }
 });
 
+
+/** PATCH /[:userId]/bio => 
+ * 
+ *  Edit bio of given user
+ * 
+ * Data in => params: :userId
+ *            body: bioTxt
+ * 
+ * return {newBio}
+ * 
+ * authorization needed: logged in, correct user or admin
+ */
+router.patch("/:userId/bio",ensureCorrectUserOrAdmin,check('userId').isNumeric(),
+async function(req,res,next) {
+    let userId;
+    if(req.params.userId !== undefined) userId = +req.params.userId;
+    const body = req.body;
+    if(!body.bioTxt) throw new BadRequestError(`Missing proper request body information. Need "bioTxt" string field`);
+    const bioTxt = body.bioTxt
+    try {
+        validationResult(req).throw();
+        const newBio = await SocialConnections.editBio({userId,bioTxt})
+        return res.json({newBio})
+    } catch(err) {
+        return next(err)
+    }
+});
 
 /** POST /[:userId]/[upload]  => 
  * 
  *  Upload An Image As A Profile Pic
  * 
- *  Data in => params /:userId
+ *  Data in => params: /:userId
+ *             multipart form data: req.file => avatarPicUrl + file
  * 
  *  returns => {avatar_pic_url}
  * 
  * authorization needed: logged in, correct user or admin
  */
-router.post("/:userId/upload",ensureCorrectUserOrAdmin,upload.single('avatarPicUrl'),async function(req,res,next) {
-    console.log(req)
-    return res.json(req);
+router.post("/:userId/upload",ensureCorrectUserOrAdmin,upload.single("avatarPicUrl"),check('userId').isNumeric(), 
+async function(req,res,next) {
+    console.log(req.file)
+    let userId;
+    let avatarPicUrl;
+    let filename;
+    if(req.file) {
+        avatarPicUrl = req.file;
+        filename = avatarPicUrl.filename;
+    }
+    if(req.params.userId !== undefined) userId = +req.params.userId;
+    if(!req.headers.authorization) throw new UnauthorizedError('You are not authorized to get this file');
+    if(+filename.split(/-/)[0] !== userId) throw new UnauthorizedError('You are not authorized to get this file');
+    const token = req.headers.authorization;
+    try {
+        validationResult(req).throw();
+        const newAvatar = await SocialConnections.uploadPicture({userId,filename,token})
+        return res.json({newAvatar})
+    } catch(err) {
+        return next(err)
+    }
 })
 
-
-
-/** POST /:userFollowingId/follow/:userBeingFollowedId  => {userFollowingId,userBeingFollowedId}
+/** GET /[:userId]/[uploads]/[:filename]  => 
  * 
- *  Follow A User
+ *  Get an image file from the server to display on the front end
  * 
- *  Data in => params /:userFollowingId <int>/:userBeingFollowedId <int>
- * 
- *  returns => {userFollowingId,userBeingFollowedId}
+ *  Data in => params: {userId, filename}
+ *             
+ *  returns =>  file
  * 
  * authorization needed: logged in, correct user or admin
  */
-router.post("/:userFollowingId/follow/:userBeingFollowedId",ensureCorrectUserOrAdmin,
-check('userFollowingId').isNumeric(),check('userBeingFollowedId').isNumeric(),
+router.get("/:userId/uploads/:filename/:token",check('userId').isNumeric(), 
 async function(req,res,next) {
-    let userFollowingId;
+    let filename = req.params.filename;
+    let userId;
+    if(req.params.userId !== undefined) userId = +req.params.userId;
+    if(+filename.split(/-/)[0] !== userId) throw new UnauthorizedError('You are not authorized to get this file');
+    let currentUser = jwt.verify(req.params.token,SECRET_KEY);
+    try{
+        if(currentUser.user_id === userId || currentUser.is_admin === true) {
+            validationResult(req).throw();
+            res.sendFile(filename,{root:path.join(process.env.IMAGES_PATH,'images/UserAvatars')})
+        }
+        else {
+            throw new UnauthorizedError('You are not authorized to get this file')
+        }
+    } catch(err) {
+        
+        return next(err)
+    }
+})
+
+
+/** POST /:userId/follow/:userBeingFollowedId  => {userId,userBeingFollowedId}
+ * 
+ *  Follow A User
+ * 
+ *  Data in => params /:userId <int>/:userBeingFollowedId <int>
+ * 
+ *  returns => {userId,userBeingFollowedId}
+ * 
+ * authorization needed: logged in, correct user or admin
+ */
+router.post("/:userId/follow/:userBeingFollowedId",ensureCorrectUserOrAdmin,
+check('userId').isNumeric(),check('userBeingFollowedId').isNumeric(),
+async function(req,res,next) {
+    let userId;
     let userBeingFollowedId;
-    if(req.params.userFollowingId !== undefined) userFollowingId = +req.params.userFollowingId;
+    if(req.params.userId !== undefined) userId = +req.params.userId;
     if(req.params.userBeingFollowedId !== undefined) userBeingFollowedId = +req.params.userBeingFollowedId;
     try {
         validationResult(req).throw();
-        const followedRes = await SocialConnections.follow(userFollowingId,userBeingFollowedId);
+        const followedRes = await SocialConnections.follow(userId,userBeingFollowedId);
         return res.json({followedRes});
     } catch(err) {
-        console.log(err.mapped())
+        
         return next(err);
     }
 });
 
 
-/** DELETE /:userFollowingId/unfollow/:userBeingFollowedId 
+/** DELETE /:userId/unfollow/:userBeingFollowedId 
  * 
- * data in => params /:userFollowingId <int>/unfollow/:userBeingFollowedId <int>
+ * data in => params /:userId <int>/unfollow/:userBeingFollowedId <int>
  * 
  * returns => {Success}
  * 
  * authorization needed: logged in, correct user or admin
  */
-router.delete("/:userFollowingId/unfollow/:userBeingFollowedId",ensureCorrectUserOrAdmin,
-check('userFollowingId').isNumeric(),check('userBeingFollowedId').isNumeric(),
+router.delete("/:userId/unfollow/:userBeingFollowedId",ensureCorrectUserOrAdmin,
+check('userId').isNumeric(),check('userBeingFollowedId').isNumeric(),
 async function(req,res,next) {
-    let userFollowingId;
+    let userId;
     let userBeingFollowedId;
-    if(req.params.userFollowingId !== undefined) userFollowingId = +req.params.userFollowingId;
+    if(req.params.userId !== undefined) userId = +req.params.userId;
     if(req.params.userBeingFollowedId !== undefined) userBeingFollowedId = +req.params.userBeingFollowedId;
 
     try {
         validationResult(req).throw();
-        await SocialConnections.unfollow(userFollowingId,userBeingFollowedId);
-        return res.json({Success:`User ${userFollowingId} unfollowed user ${userBeingFollowedId}`});
+        await SocialConnections.unfollow(userId,userBeingFollowedId);
+        return res.json({Success:`User ${userId} unfollowed user ${userBeingFollowedId}`});
     } catch(err) {
-        console.log(err.mapped())
+         
         return next(err);
     }
 });
@@ -192,7 +272,7 @@ async function(req,res,next) {
         let likedRes = await SocialConnections.addLike({userId,tripId});
         return res.json({likedRes});
     } catch(err) {
-        console.log(err.mapped())
+         
         return next(err);
     }
 });
@@ -218,7 +298,7 @@ async function(req,res,next) {
         let unlikedRes = await SocialConnections.unlike({userId,tripId});
         return res.json({unlikedRes});
     } catch(err) {
-        console.log(err.mapped())
+         
         return next(err);
     }
 });

@@ -18,7 +18,10 @@ const router = new express.Router();
  * 
  *  req.body should be {toUserId,fromUserId}
  * 
- * returns {id,msgTxt,toUserId,fromUserId,conversationId}
+ * @returns {id,msgTxt,toUserId,fromUserId,conversationId
+ *           fromUserAvatar:{file path}
+ *           toUserAvatar:{file path}
+ *          }
  * 
  * auth required: logged in, correct user or admin
 */
@@ -30,7 +33,7 @@ async function(req,res,next) {
         const messages = await Messages.get(params);
         return res.json({messages});
     } catch(err) {
-        console.log(err.mapped())
+        // 
         return next(err);
     }
 })
@@ -40,12 +43,12 @@ async function(req,res,next) {
  * 
  *  req.body should be {msgTxt,toUserId, fromUserId}
  * 
- * returns {id,msgTxt,toUserId,fromUserId}
+ * returns {id,msgTxt,toUserId,fromUserId,fromUserAvatar}
  * 
  * Auth required: logged in 
  * 
  */
- router.post("/create",ensureLoggedIn,check('msgTxt').isLength({max:350}),check('toUserId').isNumeric(),check('fromUserId').isNumeric(),
+ router.post("/create",ensureLoggedIn,check('msgTxt').isLength({max:400}),check('toUserId').isNumeric(),check('fromUserId').isNumeric(),
  async function(req,res,next) {
     const body = req.body;
     try {
@@ -53,7 +56,7 @@ async function(req,res,next) {
         const createdMsg = await Messages.createMessage(body);
         return res.json({createdMsg});
     } catch(err) {
-        console.log(err.mapped())
+        
         return next(err);
     }
 })
@@ -66,12 +69,12 @@ async function(req,res,next) {
  *                              newMsgTxt
  *                              } 
  * 
- * returns {id,msgTxt,toUserId,fromUserId}
+ * returns {id,msgTxt,toUserId,fromUserId,fromUserAvatar}
  * 
  * Auth required: logged in, admin or correct user
  */
 
-router.patch("/edit/:msgId",ensureCorrectUserOrAdmin,check('newMsgTxt').isLength({max:350}),check('msgId').isNumeric(),
+router.patch("/edit/:msgId",ensureCorrectUserOrAdmin,check('newMsgTxt').isLength({max:400}),check('msgId').isNumeric(),
 async function(req,res,next) {
     let id;
     if(req.params.msgId !== undefined) id = +req.params.msgId;
@@ -85,7 +88,7 @@ async function(req,res,next) {
         const editedMsg = await Messages.edit(data);
         return res.json({editedMsg});
     } catch(err) {
-        console.log(err.mapped())
+        
         return next(err);
     }
 })
