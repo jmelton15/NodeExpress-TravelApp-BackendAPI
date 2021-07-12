@@ -72,7 +72,7 @@ class SocialConnections {
     static async getConnectionsTrips({userId}) {
         const tripData = await db.query(
             `SELECT users.id AS "user_id",users.username,users.avatar_pic_url,trips.id AS trip_id,
-                    trips.waypoint_names,trips.start_point,trips.end_point,trips.photo::jsonb AS "photo",trips.like_count
+                    trips.marker_data,trips.waypoint_names,trips.start_point,trips.end_point,trips.photo::jsonb AS "photo",trips.like_count
              FROM users
              JOIN trips
              ON users.id = trips.user_id
@@ -100,10 +100,10 @@ class SocialConnections {
         const queryResult = await db.query(
             `SELECT id AS "user_id",username,bio,follow_count,follower_count,avatar_pic_url 
              FROM users
-             WHERE username = $1`,[username]
+             WHERE username ILIKE '%' || $1 || '%'`,[username]
         );
 
-        const foundUser = queryResult.rows[0];
+        const foundUser = queryResult.rows;
         if(!foundUser) throw new NotFoundError(`Unable to find user ${username}`)
 
         return foundUser;
